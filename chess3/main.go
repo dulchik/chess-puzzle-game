@@ -24,11 +24,67 @@ var boardColors = [2]color.Color{
 }
 
 type Game struct {
-	chessGame *chess.Game
+	chessGame 		*chess.Game
+	selectedSquare 	*chess.Square
+	mouseDown		bool
+}
+
+func squareFromMouse(x, y int) (chess.Square, bool) {
+	if x < 0 || y < 0 || x >= screenWidth || y >= screenHeight {
+		return 0, false
+	}
+
+	file := x / tileSize
+	rank := 7 - (y / tileSize)
+
+	if file < 0 || file > 7 || rank < 0 || rank > 7 {
+		return 0, false
+	} 
+
+	return chess.Square(file + 8*rank), true
+}
+
+func moveFromSquares(pos *chess.Position, from, to chess.Square) (*chess.Move, error) {
+	uci := from.String() + to.String()
+	notation := chess.UCINotation{}
+	return notation.Decode(pos, uci)
 }
 
 func (g *Game) Update() error {
-	// TODO: handle mouse clicks and move pieces
+	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+
+	// Detect click (not hold)
+	if mousePressed && !g.mouseDown {
+		x, y := ebiten.CursorPosition()
+		sq, ok := squareFromMouse(x, y)
+		if ok {
+			board := g.chessGame.Position().Board()
+			piece := board.Piece(sq)
+
+			// No piece selected yet -> try selecting
+			if g.selectedSquare == nil {
+				if piece != chess.NoPiece &&
+					piece.Color() == g.chessGame.Position().Turn() {
+					g.selectedSquare = &sq
+				}
+			} else {
+				// Attempt move
+				move, err := moveFromSquares(g.chessGame.Position(), *g.selectedSquare, sq)
+				if err == nil && g.chessGame.Move(move, nil) == nil{
+					g.selectedSquare = nil
+				} else {
+					if piece != chess.NoPiece &&
+						piece.Color() == g.chessGame.Position().Turn() {
+						g.selectedSquare = &sq
+					} else {
+						g.selectedSquare = nil
+					}
+				}
+			}
+		}
+	}
+
+	g.mouseDown = mousePressed
 	return nil
 }
 
@@ -51,6 +107,17 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			sq := chess.Square(int(file) + 8*int(rank))
 			col := boardColors[(int(rank)+int(file))%2]
 			ebitenutil.DrawRect(screen, float64(file)*tileSize, float64(7-rank)*tileSize, tileSize, tileSize, col)
+
+			if g.selectedSquare != nil && sq == *g.selectedSquare {
+				ebitenutil.DrawRect(
+					screen,
+					float64(file)*tileSize,
+					float64(7-rank)*tileSize,
+					tileSize,
+					tileSize,
+					color.RGBA{0, 255, 0, 80},
+				)
+			}
 
 			// Draw piece as string for now
 			piece := g.chessGame.Position().Board().Piece(sq)
@@ -80,7 +147,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
    	    	screen,
     		file.String(),
     	   	faceFont,
-     	 	int(file)*tileSize+108,
+     	 	int(file)*tileSize+116,
 			1280, // bottom margin
       	 	colInv,
 		)
