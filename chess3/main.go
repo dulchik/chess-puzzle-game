@@ -27,6 +27,20 @@ type Game struct {
 	chessGame 		*chess.Game
 	selectedSquare 	*chess.Square
 	mouseDown		bool
+
+	legalTargets	map[chess.Square]bool
+}
+
+func legalMovesFrom(pos *chess.Position, from chess.Square) map[chess.Square]bool {
+	moves := pos.ValidMoves()
+	targets := make(map[chess.Square]bool)
+
+	for _, m := range moves {
+		if m.S1() == from {
+			targets[m.S2()] = true
+		}
+	}
+	return targets
 }
 
 func squareFromMouse(x, y int) (chess.Square, bool) {
@@ -66,18 +80,22 @@ func (g *Game) Update() error {
 				if piece != chess.NoPiece &&
 					piece.Color() == g.chessGame.Position().Turn() {
 					g.selectedSquare = &sq
+					g.legalTargets = legalMovesFrom(g.chessGame.Position(), sq)
 				}
 			} else {
 				// Attempt move
 				move, err := moveFromSquares(g.chessGame.Position(), *g.selectedSquare, sq)
 				if err == nil && g.chessGame.Move(move, nil) == nil{
 					g.selectedSquare = nil
+					g.legalTargets = nil
 				} else {
 					if piece != chess.NoPiece &&
 						piece.Color() == g.chessGame.Position().Turn() {
 						g.selectedSquare = &sq
+						g.legalTargets = legalMovesFrom(g.chessGame.Position(), sq)
 					} else {
 						g.selectedSquare = nil
+						g.legalTargets = nil
 					}
 				}
 			}
@@ -117,6 +135,29 @@ func (g *Game) Draw(screen *ebiten.Image) {
 					tileSize,
 					color.RGBA{0, 255, 0, 80},
 				)
+			}
+			// Highlight legal target squares
+			if g.legalTargets != nil && g.legalTargets[sq] {
+				if g.chessGame.Position().Board().Piece(sq) != chess.NoPiece {
+        			// capture square
+        			ebitenutil.DrawRect(
+           			screen,
+          			float64(file)*tileSize,
+           			float64(7-rank)*tileSize,
+            		tileSize,
+            		tileSize,
+            		color.RGBA{255, 0, 0, 80},
+        			)
+    			}
+				ebitenutil.DrawRect(
+					screen,
+					float64(file)*tileSize,
+					float64(7-rank)*tileSize,
+					tileSize,
+					tileSize,
+					color.RGBA{0, 0, 0, 60},
+				)
+
 			}
 
 			// Draw piece as string for now
