@@ -41,6 +41,9 @@ type Game struct {
 	// promotion UI
 	promotionFrom   *chess.Square
 	promotionTo     *chess.Square
+
+	gameOver 		bool
+	gameResult   	string
 }
 
 func loadFonts() {
@@ -120,7 +123,26 @@ func formatMoves(moves []*chess.Move) []string {
 	return lines
 }
 
+func (g *Game) resetGame() {
+	g.chessGame = chess.NewGame()
+
+	g.selectedSquare = nil
+	g.legalTargets = nil
+
+	g.promotionFrom = nil
+	g.promotionTo = nil
+
+	g.gameOver = false
+}
+
 func (g *Game) Update() error {
+	if g.gameOver {
+		if ebiten.IsKeyPressed(ebiten.KeyR) {
+			g.resetGame()
+		}
+		return nil
+	}
+
 	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 
 	if g.promotionFrom != nil {
@@ -214,9 +236,47 @@ func (g *Game) Update() error {
 			}
 		}
 	}
+	pos := g.chessGame.Position()
+	switch pos.Status() {
+	case chess.Checkmate:
+		g.gameOver = true
+		if pos.Turn() == chess.White {
+			g.gameResult = "Black wins by checkmate"
+		} else {
+			g.gameResult = "White wins by checkmate"
+		}
+	case chess.Stalemate:
+		g.gameOver = true
+		g.gameResult = "Draw by stalemate"
+	}
+
+	if ebiten.IsKeyPressed(ebiten.KeyR) {
+		*g = Game{chessGame: chess.NewGame()}
+	}
+	
 
 	g.mouseDown = mousePressed
 	return nil
+}
+
+func findKingSquare(b *chess.Board, color chess.Color) (chess.Square, bool) {
+	for sq := chess.Square(0); sq <= chess.H8; sq++ {
+		p := b.Piece(sq)
+		if p != chess.NoPiece &&
+			p.Type() == chess.King &&
+			p.Color() == color {
+			return sq, true
+		}
+	}
+	return chess.NoSquare, false
+}
+
+func kingInCheck(g *chess.Game) bool {
+	moves := g.Moves()
+	if len(moves) == 0 {
+		return false
+	}
+	return moves[len(moves)-1].HasTag(chess.Check)
 }
 
 func (g *Game) drawPromotionPicker(screen *ebiten.Image) {
@@ -309,9 +369,29 @@ func (g *Game) Draw(screen *ebiten.Image) {
 				)
 
 			}
+
+			// Highlight last move
 			if lastMove != nil && (sq == lastMove.S1() || sq == lastMove.S2()) {
 				ebitenutil.DrawRect(screen, float64(file)*tileSize, float64(7-rank)*tileSize, tileSize, tileSize, color.RGBA{255, 255, 0, 80})
 			}
+
+			// Highlight King in Check 
+			pos := g.chessGame.Position()
+			if kingInCheck(g.chessGame) && pos.Status() != chess.Checkmate {
+				if ks, ok := findKingSquare(pos.Board(), pos.Turn()); ok {
+					file := int(ks.File())
+					rank := 7 - int(ks.Rank())
+
+					ebitenutil.DrawRect(screen,
+						float64(file*tileSize),
+						float64(rank*tileSize),
+						float64(tileSize),
+						float64(tileSize),
+						color.RGBA{200, 0, 0, 120}, // translucent red
+					)
+				}
+			}
+
 
 			// Draw piece as string for now
 			piece := g.chessGame.Position().Board().Piece(sq)
@@ -348,6 +428,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 
 	g.drawPromotionPicker(screen)
+
+	if g.gameOver {
+		ebitenutil.DrawRect(screen, 0, 0, float64(boardSize), float64(boardSize), color.RGBA{0, 0, 0, 180})
+		text.Draw(screen, g.gameResult, textFace, boardSize/2-120, boardSize/2, color.White)
+		text.Draw(screen, "Press R to Restart", textFace, boardSize/2-90, boardSize/2+40, color.White)
+	}
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
