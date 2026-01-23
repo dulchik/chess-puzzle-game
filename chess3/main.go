@@ -44,6 +44,11 @@ type Game struct {
 
 	gameOver 		bool
 	gameResult   	string
+
+	engine 			*Engine
+	aiColor			chess.Color
+	aiElo			int
+	aiThinking		bool
 }
 
 func loadFonts() {
@@ -58,21 +63,7 @@ func loadFonts() {
 	textFace = truetype.NewFace(textTTF, &truetype.Options{Size: 20})
 }
 
-func isPawnPromotion(pos *chess.Position, from, to chess.Square) bool {
-    piece := pos.Board().Piece(from)
-    if piece == chess.NoPiece || piece.Type() != chess.Pawn {
-        return false
-    }
-
-    if piece.Color() == chess.White && to.Rank() == chess.Rank8 {
-        return true
-    }
-    if piece.Color() == chess.Black && to.Rank() == chess.Rank1 {
-        return true
-    }
-    return false
-}
-
+// Moves Draw helpers
 
 func legalMovesFrom(pos *chess.Position, from chess.Square) map[chess.Square]bool {
 	moves := pos.ValidMoves()
@@ -123,6 +114,8 @@ func formatMoves(moves []*chess.Move) []string {
 	return lines
 }
 
+// Game Update helpers
+
 func (g *Game) resetGame() {
 	g.chessGame = chess.NewGame()
 
@@ -135,107 +128,116 @@ func (g *Game) resetGame() {
 	g.gameOver = false
 }
 
-func (g *Game) Update() error {
-	if g.gameOver {
-		if ebiten.IsKeyPressed(ebiten.KeyR) {
-			g.resetGame()
+func isPawnPromotion(pos *chess.Position, from, to chess.Square) bool {
+    piece := pos.Board().Piece(from)
+    if piece == chess.NoPiece || piece.Type() != chess.Pawn {
+        return false
+    }
+
+    if piece.Color() == chess.White && to.Rank() == chess.Rank8 {
+        return true
+    }
+    if piece.Color() == chess.Black && to.Rank() == chess.Rank1 {
+        return true
+    }
+    return false
+}
+
+func (g *Game) handleHumanClick(sq chess.Square) {
+	board := g.chessGame.Position().Board()
+	piece := board.Piece(sq)
+
+	if g.selectedSquare == nil {
+		if piece != chess.NoPiece && piece.Color() == g.chessGame.Position().Turn() {
+			g.selectedSquare = &sq
+			g.legalTargets = legalMovesFrom(g.chessGame.Position(), sq)
 		}
-		return nil
+		return
 	}
 
-	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+	// Try move
+	if isPawnPromotion(g.chessGame.Position(), *g.selectedSquare, sq) {
+		g.promotionFrom = g.selectedSquare
+		g.promotionTo = &sq
+		g.selectedSquare = nil
+		g.legalTargets = nil
+		return
+	}
+	uci := g.selectedSquare.String() + sq.String()
+	move, err := chess.UCINotation{}.Decode(g.chessGame.Position(), uci)
+	if err == nil {
+ 		g.chessGame.Move(move, nil) 
+	} 
+	
+	g.selectedSquare = nil
+	g.legalTargets = nil
+}
 
-	if g.promotionFrom != nil {
-		if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) && !g.mouseDown {
+func (g *Game) handlePromotion(mousePressed bool) {
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) && !g.mouseDown {
+		g.promotionFrom = nil
+		g.promotionTo = nil
+		return
+	}
+
+	if !mousePressed || g.mouseDown {
+		return
+	}
+
+	x, y := ebiten.CursorPosition()
+	file := x / tileSize
+	rank := 7 - (y / tileSize)
+
+	options := []rune{'q', 'r', 'b', 'n'}
+
+	for i, promo := range options {
+		r := g.promotionTo.Rank()
+
+		if g.chessGame.Position().Turn() == chess.Black {
+			r += chess.Rank(i)	
+		} else {
+			r -= chess.Rank(i)
+		}
+
+		if int(file) == int(g.promotionTo.File()) && int(rank) == int(r) {
+			uci := g.promotionFrom.String() + g.promotionTo.String() + string(promo)
+			move, err := chess.UCINotation{}.Decode(g.chessGame.Position(), uci)
+			if err == nil {
+				g.chessGame.Move(move, nil)
+			}
+
 			g.promotionFrom = nil
 			g.promotionTo = nil
-			g.mouseDown = true
-			return nil
-		}
-
-		if mousePressed && !g.mouseDown {
-			x, y := ebiten.CursorPosition()
-			file := x / tileSize
-			rank := 7 - (y / tileSize)
-
-			options := []rune{'q', 'r', 'b', 'n'}
-
-			for i, promo := range options {
-				r := g.promotionTo.Rank()
-				if g.chessGame.Position().Turn() == chess.Black {
-					r += chess.Rank(i)	
-				} else {
-					r -= chess.Rank(i)
-				}
-
-				if int(file) == int(g.promotionTo.File()) && int(rank) == int(r) {
-					uci := g.promotionFrom.String() + g.promotionTo.String() + string(promo)
-					move, err := chess.UCINotation{}.Decode(g.chessGame.Position(), uci)
-					if err == nil {
-						g.chessGame.Move(move, nil)
-					}
-
-					g.promotionFrom = nil
-					g.promotionTo = nil
-					g.mouseDown = mousePressed
-					return nil
-				}
-			}
-			g.promotionFrom = nil
-			g.promotionTo = nil
-		}
-		
-		g.mouseDown = mousePressed
-		return nil
-	}
-
-	// Detect click (not hold)
-	if mousePressed && !g.mouseDown {
-		x, y := ebiten.CursorPosition()
-		sq, ok := squareFromMouse(x, y)
-		if ok {
-			board := g.chessGame.Position().Board()
-			piece := board.Piece(sq)
-
-			// No piece selected yet -> try selecting
-			if g.selectedSquare == nil {
-				if piece != chess.NoPiece &&
-					piece.Color() == g.chessGame.Position().Turn() {
-					g.selectedSquare = &sq
-					g.legalTargets = legalMovesFrom(g.chessGame.Position(), sq)
-				}
-			} else {
-				// Attempt move
-				if isPawnPromotion(g.chessGame.Position(), *g.selectedSquare, sq) {
-					g.promotionFrom = g.selectedSquare
-					g.promotionTo = &sq
-					g.selectedSquare = nil
-					g.legalTargets = nil
-					g.mouseDown = mousePressed
-					return nil
-				}
-
-				uci := g.selectedSquare.String() + sq.String()
-				notation := chess.UCINotation{}
-				move, err := notation.Decode(g.chessGame.Position(), uci)
-
-				if err == nil {
-					g.chessGame.Move(move, nil) 
-					g.selectedSquare = nil
-					g.legalTargets = nil
-				} else {
-					if piece != chess.NoPiece &&
-						piece.Color() == g.chessGame.Position().Turn() {
-						g.selectedSquare = &sq
-						g.legalTargets = legalMovesFrom(g.chessGame.Position(), sq)
-					} else {
-						g.selectedSquare = nil
-						g.legalTargets = nil
-					}
-				}
-			}
+			return
 		}
 	}
+	
+	g.promotionFrom = nil
+	g.promotionTo = nil
+}
+
+func (g *Game) tryAIMove() {
+	if g.aiThinking {
+		return
+	}
+
+	g.aiThinking = true
+
+	go func() {
+		fen := g.chessGame.Position().String()
+		uci, err := g.engine.BestMove(fen, 300)
+		if err == nil {
+			move, err := chess.UCINotation{}.Decode(g.chessGame.Position(), uci)
+			if err == nil {
+				g.chessGame.Move(move, nil)
+			}
+		}
+		g.aiThinking = false
+	}()
+
+}
+
+func (g *Game) checkGameOver() {
 	pos := g.chessGame.Position()
 	switch pos.Status() {
 	case chess.Checkmate:
@@ -249,12 +251,51 @@ func (g *Game) Update() error {
 		g.gameOver = true
 		g.gameResult = "Draw by stalemate"
 	}
+}
 
+
+func (g *Game) Update() error {
+	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+
+	// restart the game with R
 	if ebiten.IsKeyPressed(ebiten.KeyR) {
-		*g = Game{chessGame: chess.NewGame()}
+		g.resetGame()
+		return nil
+	}
+
+	// Game over
+	if g.gameOver {
+		if ebiten.IsKeyPressed(ebiten.KeyR) {
+			g.resetGame()
+		}
+		return nil
 	}
 	
+	// Promotion Picker 
+	if g.promotionFrom != nil {
+		g.handlePromotion(mousePressed)
+		g.mouseDown = mousePressed
+		return nil
+	}
 
+	// AI turn
+	if g.chessGame.Position().Turn() == g.aiColor {
+		g.tryAIMove()
+		g.mouseDown = mousePressed
+		return nil
+	}
+
+	// Human input
+	if mousePressed && !g.mouseDown {
+		x, y := ebiten.CursorPosition()
+		sq, ok := squareFromMouse(x, y)
+		if ok {
+			g.handleHumanClick(sq)
+		}
+	}
+
+	// End-of-turn status check
+	g.checkGameOver()
 	g.mouseDown = mousePressed
 	return nil
 }
@@ -441,7 +482,19 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func main() {
-	game := &Game{chessGame: chess.NewGame()}
+	engine, err := NewEngine("./engine/stockfish/stockfish-ubuntu-x86-64-bmi2")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	engine.SetElo(1200)
+
+	game := &Game{
+		chessGame: 	chess.NewGame(),
+		engine: 	engine,
+		aiColor: 	chess.Black,
+		aiElo: 		1200,
+	}
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("Ebiten Chess")
 	loadFonts()
