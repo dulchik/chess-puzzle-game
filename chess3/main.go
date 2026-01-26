@@ -5,12 +5,20 @@ import (
 	"image/color"
 	"io/ioutil"
 	"log"
+	"time"
 	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/font"
 	"github.com/corentings/chess/v2"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text"
+)
+
+type GameMode int
+
+const (
+	ModeMenu GameMode = iota
+	ModePlaying
 )
 
 const (
@@ -49,6 +57,19 @@ type Game struct {
 	aiColor			chess.Color
 	aiElo			int
 	aiThinking		bool
+
+	mode 			GameMode
+
+	// menu settings
+	playWithAI		bool
+	playerColor 	chess.Color
+	useTimer		bool
+	timeSeconds		int
+
+	whiteTime time.Duration
+	blackTime time.Duration
+	lastTick  time.Time
+
 }
 
 func loadFonts() {
@@ -253,9 +274,108 @@ func (g *Game) checkGameOver() {
 	}
 }
 
+func (g *Game) updateMenu() {
+	// Play vs AI
+	if buttonClicked(100, 150, 200, 40) {
+		g.playWithAI = true
+	}
+
+	// Local multiplayer
+	if buttonClicked(320, 150, 200, 40) {
+		g.playWithAI = false
+	}
+
+	// AI options
+	if g.playWithAI {
+		g.aiElo = slider(100, 230, 300, 800, 2000, g.aiElo)
+
+		if buttonClicked(100, 270, 140, 40) {
+			g.playerColor = chess.White
+		}
+		if buttonClicked(260, 270, 140, 40) {
+			g.playerColor = chess.Black
+		}
+	}
+
+	// Timer presets
+	if buttonClicked(100, 340, 100, 40) {
+		g.useTimer = false
+	}
+	if buttonClicked(210, 340, 100, 40) {
+		g.useTimer = true
+		g.timeSeconds = 180
+	}
+	if buttonClicked(320, 340, 100, 40) {
+		g.useTimer = true
+		g.timeSeconds = 300
+	}
+
+	// Start game
+	if buttonClicked(180, 420, 200, 50) {
+		g.startGame()
+	}
+	
+}
+
+func (g *Game) startGame() {
+    g.chessGame = chess.NewGame()
+    g.gameOver = false
+    g.mode = ModePlaying
+
+    if g.useTimer {
+        t := time.Duration(g.timeSeconds) * time.Second
+        g.whiteTime = t
+        g.blackTime = t
+        g.lastTick = time.Now()
+    }
+
+    if g.playWithAI {
+        g.engine.SetElo(g.aiElo)
+        g.aiColor = oppositeColor(g.playerColor)
+    } else {
+        g.aiColor = chess.NoColor
+    }
+}
+
+
+func oppositeColor(c chess.Color) chess.Color {
+	if c == chess.White {
+		return chess.Black
+	}
+	return chess.White
+}
 
 func (g *Game) Update() error {
+	if g.mode == ModeMenu {
+		g.updateMenu()
+		return nil
+	}
+
+
+
 	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+
+	
+	if g.useTimer && !g.gameOver {
+    	now := time.Now()
+   		delta := now.Sub(g.lastTick)
+    	g.lastTick = now
+
+    	if g.chessGame.Position().Turn() == chess.White {
+        	g.whiteTime -= delta
+        	if g.whiteTime <= 0 {
+            	g.gameOver = true
+            	g.gameResult = "Black wins on time"
+       		}
+    	} else {
+        	g.blackTime -= delta
+        	if g.blackTime <= 0 {
+            	g.gameOver = true
+            	g.gameResult = "White wins on time"
+        	}
+    	}
+	}
+
 
 	// restart the game with R
 	if ebiten.IsKeyPressed(ebiten.KeyR) {
@@ -353,9 +473,83 @@ func (g *Game) drawPromotionPicker(screen *ebiten.Image) {
 	}
 }
 
+func drawButton(screen *ebiten.Image, x, y, w, h int, label string, hovered bool) {
+	bg := color.RGBA{80, 80, 80, 255}
+	if hovered {
+		bg = color.RGBA{120, 120, 120, 255}
+	}
+
+	ebitenutil.DrawRect(screen, float64(x), float64(y), float64(w), float64(h), bg)
+	ebitenutil.DebugPrintAt(screen, label, x+10, y+10)
+}
+
+func buttonClicked(x, y, w, h int) bool {
+	mx, my := ebiten.CursorPosition()
+	if mx < x || mx > x+w || my < y || my > y+h {
+		return false
+	}
+	return ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+}
+
+func slider(x, y, w int, min, max, value int) int {
+	mx, my := ebiten.CursorPosition()
+
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) &&
+		my >= y-10 && my <= y+10 &&
+		mx >= x && mx <= x+w {
+		
+		t := float64(mx-x) / float64(w)
+		return min + int(t*float64(max-min))
+	}
+	return value
+}
+
+func (g *Game) drawMenu(screen *ebiten.Image) {
+	ebitenutil.DebugPrintAt(screen, "Chess Puzzle Game", 160, 80)
+
+	drawButton(screen, 100, 150, 200, 40, "Play vs AI", g.playWithAI)
+	drawButton(screen, 320, 150, 200, 40, "Local Multiplayer", !g.playWithAI)
+
+	if g.playWithAI {
+		ebitenutil.DebugPrintAt(screen, "AI ELO", 100, 210)
+		ebitenutil.DrawRect(screen, 100, 230, 300, 4, color.White)
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%d", g.aiElo), 420, 220)
+
+		drawButton(screen, 100, 270, 140, 40, "White", g.playerColor == chess.White)
+		drawButton(screen, 260, 270, 140, 40, "Black", g.playerColor == chess.Black)
+	}
+
+	drawButton(screen, 100, 340, 100, 40, "No Timer", !g.useTimer)
+	drawButton(screen, 210, 340, 100, 40, "3 min", g.useTimer && g.timeSeconds == 180)
+	drawButton(screen, 320, 340, 100, 40, "5 min", g.useTimer && g.timeSeconds == 300)
+
+	drawButton(screen, 180, 420, 200, 50, "START GAME", false)
+}
+
+func formatTime(d time.Duration) string {
+    if d < 0 {
+        d = 0
+    }
+    m := int(d.Minutes())
+    s := int(d.Seconds()) % 60
+    return fmt.Sprintf("%02d:%02d", m, s)
+}
+
+
 func (g *Game) Draw(screen *ebiten.Image) {
 
 	ebitenutil.DrawRect(screen, float64(boardSize), 0, panelWidth, boardSize, color.RGBA{30, 30, 30, 255})
+
+	if g.mode == ModeMenu {
+		g.drawMenu(screen)
+		return
+	}
+
+	if g.useTimer {
+    	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("White: %s", formatTime(g.whiteTime)), 20, 20)
+    	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Black: %s", formatTime(g.blackTime)), 20, 40)
+	}
+
 
 	moves := g.chessGame.Moves()
 	var lastMove *chess.Move
@@ -490,10 +684,15 @@ func main() {
 	engine.SetElo(1200)
 
 	game := &Game{
-		chessGame: 	chess.NewGame(),
-		engine: 	engine,
-		aiColor: 	chess.Black,
-		aiElo: 		1200,
+		chessGame: 	 chess.NewGame(),
+		engine: 	 engine,
+		aiColor: 	 chess.Black,
+		aiElo: 		 1200,
+		playWithAI:  true,
+		mode: 		 ModeMenu,
+		playerColor: chess.White,
+		useTimer:	 false,
+		timeSeconds: 300, // 5 min
 	}
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("Ebiten Chess")
