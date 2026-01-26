@@ -14,6 +14,63 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text"
 )
 
+// ---------------- TIMER ------------------
+
+type ChessClock struct {
+	White		time.Duration
+	Black		time.Duration
+	last		time.Time
+	lastTurn 	chess.Color
+	Enabled 	bool
+}
+
+func NewClock(seconds int) ChessClock {
+	t := time.Duration(seconds) * time.Second
+	return ChessClock{
+		White:	 t,
+		Black:	 t,
+		last:    time.Now(),
+		Enabled: true,
+	}
+}
+
+func (c *ChessClock) Update(turn chess.Color) {
+	if !c.Enabled {
+		return
+	}
+
+	now := time.Now()
+
+	if c.last.IsZero() || c.lastTurn != turn {
+		c.last = now
+		c.lastTurn = turn
+		return
+	}
+
+	delta := now.Sub(c.last)
+	c.last = now
+
+	if turn == chess.White {
+		c.White -= delta
+	} else {
+		c.Black -= delta
+	}
+}
+
+func (c *ChessClock) Draw(screen *ebiten.Image) {
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("White: %s", formatTime(c.White)), 20, 20)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Black: %s", formatTime(c.Black)), 20, 40)
+}
+
+func formatTime(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	m := int(d.Minutes())
+	s := int(d.Seconds()) % 60
+	return fmt.Sprintf("%02d:%02d", m, s)
+}
+
 type GameMode int
 
 const (
@@ -63,13 +120,14 @@ type Game struct {
 	// menu settings
 	playWithAI		bool
 	playerColor 	chess.Color
-	useTimer		bool
 	timeSeconds		int
+
+	useTimer 		bool
+	clock			ChessClock
 
 	whiteTime time.Duration
 	blackTime time.Duration
 	lastTick  time.Time
-
 }
 
 func loadFonts() {
@@ -323,10 +381,8 @@ func (g *Game) startGame() {
     g.mode = ModePlaying
 
     if g.useTimer {
-        t := time.Duration(g.timeSeconds) * time.Second
-        g.whiteTime = t
-        g.blackTime = t
-        g.lastTick = time.Now()
+		g.clock = NewClock(g.timeSeconds)
+		g.clock.last = time.Now()	
     }
 
     if g.playWithAI {
@@ -351,31 +407,11 @@ func (g *Game) Update() error {
 		return nil
 	}
 
-
-
 	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
-
 	
-	if g.useTimer && !g.gameOver {
-    	now := time.Now()
-   		delta := now.Sub(g.lastTick)
-    	g.lastTick = now
-
-    	if g.chessGame.Position().Turn() == chess.White {
-        	g.whiteTime -= delta
-        	if g.whiteTime <= 0 {
-            	g.gameOver = true
-            	g.gameResult = "Black wins on time"
-       		}
-    	} else {
-        	g.blackTime -= delta
-        	if g.blackTime <= 0 {
-            	g.gameOver = true
-            	g.gameResult = "White wins on time"
-        	}
-    	}
+	if g.useTimer {
+		g.clock.Update(g.chessGame.Position().Turn())
 	}
-
 
 	// restart the game with R
 	if ebiten.IsKeyPressed(ebiten.KeyR) {
@@ -526,16 +562,6 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 	drawButton(screen, 180, 420, 200, 50, "START GAME", false)
 }
 
-func formatTime(d time.Duration) string {
-    if d < 0 {
-        d = 0
-    }
-    m := int(d.Minutes())
-    s := int(d.Seconds()) % 60
-    return fmt.Sprintf("%02d:%02d", m, s)
-}
-
-
 func (g *Game) Draw(screen *ebiten.Image) {
 
 	ebitenutil.DrawRect(screen, float64(boardSize), 0, panelWidth, boardSize, color.RGBA{30, 30, 30, 255})
@@ -544,12 +570,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.drawMenu(screen)
 		return
 	}
-
-	if g.useTimer {
-    	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("White: %s", formatTime(g.whiteTime)), 20, 20)
-    	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Black: %s", formatTime(g.blackTime)), 20, 40)
-	}
-
 
 	moves := g.chessGame.Moves()
 	var lastMove *chess.Move
@@ -663,6 +683,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 
 	g.drawPromotionPicker(screen)
+
+	if g.useTimer {
+    	g.clock.Draw(screen)	
+	}
 
 	if g.gameOver {
 		ebitenutil.DrawRect(screen, 0, 0, float64(boardSize), float64(boardSize), color.RGBA{0, 0, 0, 180})
