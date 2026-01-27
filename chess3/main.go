@@ -71,6 +71,66 @@ func formatTime(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d", m, s)
 }
 
+// ------------------ Move List ------------------
+
+type MoveList struct {
+	Moves 		[]*chess.Move
+	Scroll		int
+	ViewIndex 	int // index of currently viewed move
+	Visible		int // how many moves fit on screen
+}
+
+func NewMoveList() MoveList {
+	return MoveList{
+		Visible: 12,
+	}
+}
+
+func (ml *MoveList) Update(moves []*chess.Move) {
+	ml.Moves = moves
+
+	// scrolling
+	if ebiten.IsKeyPressed(ebiten.KeyArrowUp) {
+		ml.Scroll = max(0, ml.Scroll-1)
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyArrowDown) {
+		ml.Scroll = min(max(0, len(ml.Moves)-ml.Visible), ml.Scroll+1)
+
+	}
+
+	// move stepping (rewind / forward)
+	if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
+		ml.ViewIndex = max(0, ml.ViewIndex-1)
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
+		ml.ViewIndex = min(len(ml.Moves), ml.ViewIndex+1)
+	}
+
+	// Keep view at end during live play
+	if ml.ViewIndex == len(ml.Moves)-1 || ml.ViewIndex == 0 {
+		ml.ViewIndex = len(ml.Moves)
+	}
+}
+
+func (ml *MoveList) IsViewingHistory() bool {
+	return ml.ViewIndex != len(ml.Moves)
+}
+
+func (ml *MoveList) Draw(screen *ebiten.Image, x, y int) {
+	start := ml.Scroll
+	end := min(len(ml.Moves), start+ml.Visible)
+
+	for i := start; i < end; i++ {
+		prefix := " "
+		if i == ml.ViewIndex-1 {
+			prefix = "> "
+		}
+		ebitenutil.DebugPrintAt(screen, prefix+ml.Moves[i].String(), x, y+(i-start)*20)
+	} 
+}
+
+// ------------------ Game Settings --------------
+
 type GameMode int
 
 const (
@@ -125,9 +185,11 @@ type Game struct {
 	useTimer 		bool
 	clock			ChessClock
 
-	whiteTime time.Duration
-	blackTime time.Duration
-	lastTick  time.Time
+	whiteTime 		time.Duration
+	blackTime 		time.Duration
+	lastTick  		time.Time
+
+	moveList 		MoveList
 }
 
 func loadFonts() {
@@ -379,6 +441,7 @@ func (g *Game) startGame() {
     g.chessGame = chess.NewGame()
     g.gameOver = false
     g.mode = ModePlaying
+	g.moveList = NewMoveList()
 
     if g.useTimer {
 		g.clock = NewClock(g.timeSeconds)
@@ -448,6 +511,14 @@ func (g *Game) Update() error {
 		if ok {
 			g.handleHumanClick(sq)
 		}
+	}
+
+	g.moveList.Update(g.chessGame.Moves())
+	if g.moveList.IsViewingHistory() {
+		g.clock.Enabled = false
+		return nil
+	} else {
+		g.clock.Enabled = true
 	}
 
 	// End-of-turn status check
@@ -681,6 +752,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
       	 	colInv,
 		)
 	}
+
+	g.moveList.Draw(screen, 1320, 80)
 
 	g.drawPromotionPicker(screen)
 
