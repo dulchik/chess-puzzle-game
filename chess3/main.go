@@ -789,7 +789,7 @@ func main() {
 		mode: 		 ModeMenu,
 		playerColor: chess.White,
 		useTimer:	 false,
-		timeSeconds: 300, // 5 min
+		timeSeconds: 300,
 	}
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("Ebiten Chess")
