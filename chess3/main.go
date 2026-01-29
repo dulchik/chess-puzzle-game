@@ -6,29 +6,31 @@ import (
 	"io/ioutil"
 	"log"
 	"time"
-	"github.com/golang/freetype/truetype"
-	"golang.org/x/image/font"
+
 	"github.com/corentings/chess/v2"
+	"github.com/golang/freetype/truetype"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text"
+	"golang.org/x/image/font"
 )
 
 // ---------------- TIMER ------------------
 
 type ChessClock struct {
-	White		time.Duration
-	Black		time.Duration
-	last		time.Time
-	lastTurn 	chess.Color
-	Enabled 	bool
+	White    time.Duration
+	Black    time.Duration
+	last     time.Time
+	lastTurn chess.Color
+	Enabled  bool
 }
 
 func NewClock(seconds int) ChessClock {
 	t := time.Duration(seconds) * time.Second
 	return ChessClock{
-		White:	 t,
-		Black:	 t,
+		White:   t,
+		Black:   t,
 		last:    time.Now(),
 		Enabled: true,
 	}
@@ -74,15 +76,17 @@ func formatTime(d time.Duration) string {
 // ------------------ Move List ------------------
 
 type MoveList struct {
-	Moves 		[]*chess.Move
-	Scroll		int
-	ViewIndex 	int // index of currently viewed move
-	Visible		int // how many moves fit on screen
+	Moves     []*chess.Move
+	Scroll    int
+	ViewIndex int // index of currently viewed move
+	Visible   int // how many moves fit on screen
+	Font      font.Face
 }
 
 func NewMoveList() MoveList {
 	return MoveList{
 		Visible: 12,
+		Font:    textFace,
 	}
 }
 
@@ -90,30 +94,23 @@ func (ml *MoveList) Update(moves []*chess.Move) {
 	ml.Moves = moves
 
 	// scrolling
-	if ebiten.IsKeyPressed(ebiten.KeyArrowUp) {
-		ml.Scroll = max(0, ml.Scroll-1)
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyArrowDown) {
-		ml.Scroll = min(max(0, len(ml.Moves)-ml.Visible), ml.Scroll+1)
-
-	}
+	ml.HandleScroll()
 
 	// move stepping (rewind / forward)
-	if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
+	if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) {
 		ml.ViewIndex = max(0, ml.ViewIndex-1)
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
+	if inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) {
 		ml.ViewIndex = min(len(ml.Moves), ml.ViewIndex+1)
-	}
-
-	// Keep view at end during live play
-	if ml.ViewIndex == len(ml.Moves)-1 || ml.ViewIndex == 0 {
-		ml.ViewIndex = len(ml.Moves)
 	}
 }
 
 func (ml *MoveList) IsViewingHistory() bool {
-	return ml.ViewIndex != len(ml.Moves)
+	return ml.ViewIndex < len(ml.Moves)
+}
+
+func (ml *MoveList) ExitHistory() {
+	ml.ViewIndex = len(ml.Moves)
 }
 
 func (ml *MoveList) Draw(screen *ebiten.Image, x, y int) {
@@ -121,12 +118,29 @@ func (ml *MoveList) Draw(screen *ebiten.Image, x, y int) {
 	end := min(len(ml.Moves), start+ml.Visible)
 
 	for i := start; i < end; i++ {
-		prefix := " "
+		col := color.RGBA{255, 255, 255, 1}
 		if i == ml.ViewIndex-1 {
-			prefix = "> "
+			col = color.RGBA{255, 215, 0, 255} // highlight
 		}
-		ebitenutil.DebugPrintAt(screen, prefix+ml.Moves[i].String(), x, y+(i-start)*20)
-	} 
+		text.Draw(screen, ml.Moves[i].String(), ml.Font, x, y+(i-start)*22, col)
+	}
+}
+
+func (ml *MoveList) HandleScroll() {
+	_, dy := ebiten.Wheel()
+	if dy == 0 {
+		return
+	}
+
+	ml.Scroll -= int(dy)
+	if ml.Scroll < 0 {
+		ml.Scroll = 0
+	}
+
+	maxScroll := max(0, len(ml.Moves)-ml.Visible)
+	if ml.Scroll > maxScroll {
+		ml.Scroll = maxScroll
+	}
 }
 
 // ------------------ Game Settings --------------
@@ -144,7 +158,6 @@ const (
 	panelWidth   = 400
 	screenWidth  = boardSize + panelWidth
 	screenHeight = boardSize
-
 )
 
 var (
@@ -158,38 +171,40 @@ var boardColors = [2]color.Color{
 }
 
 type Game struct {
-	chessGame 		*chess.Game
-	selectedSquare 	*chess.Square
-	mouseDown		bool
-	legalTargets	map[chess.Square]bool
+	chessGame      *chess.Game
+	liveGame       *chess.Game
+	viewPos 	   *chess.Position
+	selectedSquare *chess.Square
+	mouseDown      bool
+	legalTargets   map[chess.Square]bool
 
 	// promotion UI
-	promotionFrom   *chess.Square
-	promotionTo     *chess.Square
+	promotionFrom *chess.Square
+	promotionTo   *chess.Square
 
-	gameOver 		bool
-	gameResult   	string
+	gameOver   bool
+	gameResult string
 
-	engine 			*Engine
-	aiColor			chess.Color
-	aiElo			int
-	aiThinking		bool
+	engine     *Engine
+	aiColor    chess.Color
+	aiElo      int
+	aiThinking bool
 
-	mode 			GameMode
+	mode GameMode
 
 	// menu settings
-	playWithAI		bool
-	playerColor 	chess.Color
-	timeSeconds		int
+	playWithAI  bool
+	playerColor chess.Color
+	timeSeconds int
 
-	useTimer 		bool
-	clock			ChessClock
+	useTimer bool
+	clock    ChessClock
 
-	whiteTime 		time.Duration
-	blackTime 		time.Duration
-	lastTick  		time.Time
+	whiteTime time.Duration
+	blackTime time.Duration
+	lastTick  time.Time
 
-	moveList 		MoveList
+	moveList MoveList
 }
 
 func loadFonts() {
@@ -228,7 +243,7 @@ func squareFromMouse(x, y int) (chess.Square, bool) {
 
 	if file < 0 || file > 7 || rank < 0 || rank > 7 {
 		return 0, false
-	} 
+	}
 
 	return chess.Square(file + 8*rank), true
 }
@@ -258,7 +273,7 @@ func formatMoves(moves []*chess.Move) []string {
 // Game Update helpers
 
 func (g *Game) resetGame() {
-	g.chessGame = chess.NewGame()
+	g.liveGame = chess.NewGame()
 
 	g.selectedSquare = nil
 	g.legalTargets = nil
@@ -270,34 +285,34 @@ func (g *Game) resetGame() {
 }
 
 func isPawnPromotion(pos *chess.Position, from, to chess.Square) bool {
-    piece := pos.Board().Piece(from)
-    if piece == chess.NoPiece || piece.Type() != chess.Pawn {
-        return false
-    }
+	piece := pos.Board().Piece(from)
+	if piece == chess.NoPiece || piece.Type() != chess.Pawn {
+		return false
+	}
 
-    if piece.Color() == chess.White && to.Rank() == chess.Rank8 {
-        return true
-    }
-    if piece.Color() == chess.Black && to.Rank() == chess.Rank1 {
-        return true
-    }
-    return false
+	if piece.Color() == chess.White && to.Rank() == chess.Rank8 {
+		return true
+	}
+	if piece.Color() == chess.Black && to.Rank() == chess.Rank1 {
+		return true
+	}
+	return false
 }
 
 func (g *Game) handleHumanClick(sq chess.Square) {
-	board := g.chessGame.Position().Board()
+	board := g.liveGame.Position().Board()
 	piece := board.Piece(sq)
 
 	if g.selectedSquare == nil {
-		if piece != chess.NoPiece && piece.Color() == g.chessGame.Position().Turn() {
+		if piece != chess.NoPiece && piece.Color() == g.liveGame.Position().Turn() {
 			g.selectedSquare = &sq
-			g.legalTargets = legalMovesFrom(g.chessGame.Position(), sq)
+			g.legalTargets = legalMovesFrom(g.liveGame.Position(), sq)
 		}
 		return
 	}
 
 	// Try move
-	if isPawnPromotion(g.chessGame.Position(), *g.selectedSquare, sq) {
+	if isPawnPromotion(g.liveGame.Position(), *g.selectedSquare, sq) {
 		g.promotionFrom = g.selectedSquare
 		g.promotionTo = &sq
 		g.selectedSquare = nil
@@ -305,11 +320,12 @@ func (g *Game) handleHumanClick(sq chess.Square) {
 		return
 	}
 	uci := g.selectedSquare.String() + sq.String()
-	move, err := chess.UCINotation{}.Decode(g.chessGame.Position(), uci)
+	move, err := chess.UCINotation{}.Decode(g.liveGame.Position(), uci)
 	if err == nil {
- 		g.chessGame.Move(move, nil) 
-	} 
-	
+		g.liveGame.Move(move, nil)
+		g.moveList.ExitHistory()
+	}
+
 	g.selectedSquare = nil
 	g.legalTargets = nil
 }
@@ -334,17 +350,19 @@ func (g *Game) handlePromotion(mousePressed bool) {
 	for i, promo := range options {
 		r := g.promotionTo.Rank()
 
-		if g.chessGame.Position().Turn() == chess.Black {
-			r += chess.Rank(i)	
+		if g.liveGame.Position().Turn() == chess.Black {
+			r += chess.Rank(i)
 		} else {
 			r -= chess.Rank(i)
 		}
 
 		if int(file) == int(g.promotionTo.File()) && int(rank) == int(r) {
 			uci := g.promotionFrom.String() + g.promotionTo.String() + string(promo)
-			move, err := chess.UCINotation{}.Decode(g.chessGame.Position(), uci)
+			move, err := chess.UCINotation{}.Decode(g.liveGame.Position(), uci)
 			if err == nil {
-				g.chessGame.Move(move, nil)
+				g.liveGame.Move(move, nil)
+				g.moveList.ExitHistory()
+				g.viewPos = nil
 			}
 
 			g.promotionFrom = nil
@@ -352,7 +370,7 @@ func (g *Game) handlePromotion(mousePressed bool) {
 			return
 		}
 	}
-	
+
 	g.promotionFrom = nil
 	g.promotionTo = nil
 }
@@ -365,12 +383,14 @@ func (g *Game) tryAIMove() {
 	g.aiThinking = true
 
 	go func() {
-		fen := g.chessGame.Position().String()
+		fen := g.liveGame.Position().String()
 		uci, err := g.engine.BestMove(fen, 300)
 		if err == nil {
-			move, err := chess.UCINotation{}.Decode(g.chessGame.Position(), uci)
+			move, err := chess.UCINotation{}.Decode(g.liveGame.Position(), uci)
 			if err == nil {
-				g.chessGame.Move(move, nil)
+				g.liveGame.Move(move, nil)
+				g.moveList.ExitHistory()
+				g.viewPos = nil
 			}
 		}
 		g.aiThinking = false
@@ -379,7 +399,7 @@ func (g *Game) tryAIMove() {
 }
 
 func (g *Game) checkGameOver() {
-	pos := g.chessGame.Position()
+	pos := g.liveGame.Position()
 	switch pos.Status() {
 	case chess.Checkmate:
 		g.gameOver = true
@@ -434,28 +454,27 @@ func (g *Game) updateMenu() {
 	if buttonClicked(180, 420, 200, 50) {
 		g.startGame()
 	}
-	
+
 }
 
 func (g *Game) startGame() {
-    g.chessGame = chess.NewGame()
-    g.gameOver = false
-    g.mode = ModePlaying
+	g.liveGame = chess.NewGame()
+	g.gameOver = false
+	g.mode = ModePlaying
 	g.moveList = NewMoveList()
 
-    if g.useTimer {
+	if g.useTimer {
 		g.clock = NewClock(g.timeSeconds)
-		g.clock.last = time.Now()	
-    }
+		g.clock.last = time.Now()
+	}
 
-    if g.playWithAI {
-        g.engine.SetElo(g.aiElo)
-        g.aiColor = oppositeColor(g.playerColor)
-    } else {
-        g.aiColor = chess.NoColor
-    }
+	if g.playWithAI {
+		g.engine.SetElo(g.aiElo)
+		g.aiColor = oppositeColor(g.playerColor)
+	} else {
+		g.aiColor = chess.NoColor
+	}
 }
-
 
 func oppositeColor(c chess.Color) chess.Color {
 	if c == chess.White {
@@ -471,9 +490,22 @@ func (g *Game) Update() error {
 	}
 
 	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
-	
+
 	if g.useTimer {
-		g.clock.Update(g.chessGame.Position().Turn())
+		g.clock.Update(g.liveGame.Position().Turn())
+	}
+
+	if g.viewPos != nil{
+		g.viewPos = nil
+	
+	}
+
+	g.moveList.Update(g.liveGame.Moves())
+
+	if g.moveList.IsViewingHistory() {
+		g.viewPos = BuildPositionAt(g.moveList.Moves, g.moveList.ViewIndex)
+	} else {
+		g.viewPos = nil	
 	}
 
 	// restart the game with R
@@ -489,8 +521,8 @@ func (g *Game) Update() error {
 		}
 		return nil
 	}
-	
-	// Promotion Picker 
+
+	// Promotion Picker
 	if g.promotionFrom != nil {
 		g.handlePromotion(mousePressed)
 		g.mouseDown = mousePressed
@@ -498,7 +530,7 @@ func (g *Game) Update() error {
 	}
 
 	// AI turn
-	if g.chessGame.Position().Turn() == g.aiColor {
+	if g.liveGame.Position().Turn() == g.aiColor {
 		g.tryAIMove()
 		g.mouseDown = mousePressed
 		return nil
@@ -513,18 +545,20 @@ func (g *Game) Update() error {
 		}
 	}
 
-	g.moveList.Update(g.chessGame.Moves())
-	if g.moveList.IsViewingHistory() {
-		g.clock.Enabled = false
-		return nil
-	} else {
-		g.clock.Enabled = true
-	}
-
 	// End-of-turn status check
 	g.checkGameOver()
 	g.mouseDown = mousePressed
 	return nil
+}
+
+func BuildPositionAt(moves []*chess.Move, index int) *chess.Position {
+	pos := chess.NewGame().Position()
+
+	for i := 0; i < index && i < len(moves); i++ {
+		pos = pos.Update(moves[i])
+	} 
+
+	return pos
 }
 
 func findKingSquare(b *chess.Board, color chess.Color) (chess.Square, bool) {
@@ -564,7 +598,7 @@ func (g *Game) drawPromotionPicker(screen *ebiten.Image) {
 
 	for i, pt := range pieces {
 		yRank := rank - i
-		if g.chessGame.Position().Turn() == chess.Black {
+		if g.liveGame.Position().Turn() == chess.Black {
 			yRank = rank + i
 		}
 
@@ -574,7 +608,7 @@ func (g *Game) drawPromotionPicker(screen *ebiten.Image) {
 		// background
 		ebitenutil.DrawRect(screen, x, y, tileSize, tileSize, color.RGBA{50, 50, 50, 230})
 
-		piece := chess.NewPiece(pt, g.chessGame.Position().Turn())
+		piece := chess.NewPiece(pt, g.liveGame.Position().Turn())
 		text.Draw(screen, piece.String(), pieceFace, int(x)+16, int(y)+128, color.White)
 
 	}
@@ -604,7 +638,7 @@ func slider(x, y, w int, min, max, value int) int {
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) &&
 		my >= y-10 && my <= y+10 &&
 		mx >= x && mx <= x+w {
-		
+
 		t := float64(mx-x) / float64(w)
 		return min + int(t*float64(max-min))
 	}
@@ -634,6 +668,14 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
+	if g.liveGame == nil {
+		return
+	}
+
+	pos := g.liveGame.Position()
+	if g.viewPos != nil {
+		pos = g.viewPos
+	}
 
 	ebitenutil.DrawRect(screen, float64(boardSize), 0, panelWidth, boardSize, color.RGBA{30, 30, 30, 255})
 
@@ -642,7 +684,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		return
 	}
 
-	moves := g.chessGame.Moves()
+	moves := g.liveGame.Moves()
 	var lastMove *chess.Move
 	if len(moves) > 0 {
 		lastMove = moves[len(moves)-1]
@@ -661,7 +703,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			sq := chess.Square(int(file) + 8*int(rank))
 			col := boardColors[(int(rank)+int(file))%2]
 			ebitenutil.DrawRect(screen, float64(file)*tileSize, float64(7-rank)*tileSize, tileSize, tileSize, col)
-			
+
 			if g.selectedSquare != nil && sq == *g.selectedSquare {
 				ebitenutil.DrawRect(
 					screen,
@@ -674,17 +716,17 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			}
 			// Highlight legal target squares
 			if g.legalTargets != nil && g.legalTargets[sq] {
-				if g.chessGame.Position().Board().Piece(sq) != chess.NoPiece {
-        			// capture square
-        			ebitenutil.DrawRect(
-           			screen,
-          			float64(file)*tileSize,
-           			float64(7-rank)*tileSize,
-            		tileSize,
-            		tileSize,
-            		color.RGBA{255, 0, 0, 80},
-        			)
-    			}
+				if pos.Board().Piece(sq) != chess.NoPiece {
+					// capture square
+					ebitenutil.DrawRect(
+						screen,
+						float64(file)*tileSize,
+						float64(7-rank)*tileSize,
+						tileSize,
+						tileSize,
+						color.RGBA{255, 0, 0, 80},
+					)
+				}
 				ebitenutil.DrawRect(
 					screen,
 					float64(file)*tileSize,
@@ -701,9 +743,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 				ebitenutil.DrawRect(screen, float64(file)*tileSize, float64(7-rank)*tileSize, tileSize, tileSize, color.RGBA{255, 255, 0, 80})
 			}
 
-			// Highlight King in Check 
-			pos := g.chessGame.Position()
-			if kingInCheck(g.chessGame) && pos.Status() != chess.Checkmate {
+			// Highlight King in Check
+			if kingInCheck(g.liveGame) && pos.Status() != chess.Checkmate {
 				if ks, ok := findKingSquare(pos.Board(), pos.Turn()); ok {
 					file := int(ks.File())
 					rank := 7 - int(ks.Rank())
@@ -718,9 +759,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 				}
 			}
 
-
 			// Draw piece as string for now
-			piece := g.chessGame.Position().Board().Piece(sq)
+			piece := pos.Board().Piece(sq)
 			if piece != chess.NoPiece {
 				ebitenutil.DebugPrintAt(screen, piece.String(), int(file)*tileSize+20, int(7-rank)*tileSize+20)
 			}
@@ -731,25 +771,25 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// Draw rank and file notations
 	for rank := chess.Rank8; rank >= chess.Rank1; rank-- {
 		colInv := boardColors[1-((int(rank)+int(chess.FileA))%2)]
-		y := int(7-rank)*tileSize+40 
- 	   	text.Draw(
-    	    screen,
-    	    rank.String(),
-    	    textFace,
-    	    -15,
+		y := int(7-rank)*tileSize + 40
+		text.Draw(
+			screen,
+			rank.String(),
+			textFace,
+			-15,
 			y,
 			colInv,
-   	 	)
+		)
 	}
 	for file := chess.FileA; file <= chess.FileH; file++ {
 		colInv := boardColors[1-((int(chess.Rank1)+int(file))%2)]
-   	 	text.Draw(
-   	    	screen,
-    		file.String(),
-    	   	textFace,
-     	 	int(file)*tileSize+116,
+		text.Draw(
+			screen,
+			file.String(),
+			textFace,
+			int(file)*tileSize+116,
 			1280, // bottom margin
-      	 	colInv,
+			colInv,
 		)
 	}
 
@@ -758,7 +798,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawPromotionPicker(screen)
 
 	if g.useTimer {
-    	g.clock.Draw(screen)	
+		g.clock.Draw(screen)
 	}
 
 	if g.gameOver {
@@ -781,14 +821,14 @@ func main() {
 	engine.SetElo(1200)
 
 	game := &Game{
-		chessGame: 	 chess.NewGame(),
-		engine: 	 engine,
-		aiColor: 	 chess.Black,
-		aiElo: 		 1200,
+		liveGame:   chess.NewGame(),
+		engine:      engine,
+		aiColor:     chess.Black,
+		aiElo:       1200,
 		playWithAI:  true,
-		mode: 		 ModeMenu,
+		mode:        ModeMenu,
 		playerColor: chess.White,
-		useTimer:	 false,
+		useTimer:    false,
 		timeSeconds: 300,
 	}
 	ebiten.SetWindowSize(screenWidth, screenHeight)
