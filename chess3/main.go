@@ -7,6 +7,8 @@ import (
 	"log"
 	"time"
 
+	
+
 	"github.com/corentings/chess/v2"
 	"github.com/golang/freetype/truetype"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -16,132 +18,7 @@ import (
 	"golang.org/x/image/font"
 )
 
-// ---------------- TIMER ------------------
 
-type ChessClock struct {
-	White    time.Duration
-	Black    time.Duration
-	last     time.Time
-	lastTurn chess.Color
-	Enabled  bool
-}
-
-func NewClock(seconds int) ChessClock {
-	t := time.Duration(seconds) * time.Second
-	return ChessClock{
-		White:   t,
-		Black:   t,
-		last:    time.Now(),
-		Enabled: true,
-	}
-}
-
-func (c *ChessClock) Update(turn chess.Color) {
-	if !c.Enabled {
-		return
-	}
-
-	now := time.Now()
-
-	if c.last.IsZero() || c.lastTurn != turn {
-		c.last = now
-		c.lastTurn = turn
-		return
-	}
-
-	delta := now.Sub(c.last)
-	c.last = now
-
-	if turn == chess.White {
-		c.White -= delta
-	} else {
-		c.Black -= delta
-	}
-}
-
-func (c *ChessClock) Draw(screen *ebiten.Image) {
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("White: %s", formatTime(c.White)), 20, 20)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Black: %s", formatTime(c.Black)), 20, 40)
-}
-
-func formatTime(d time.Duration) string {
-	if d < 0 {
-		d = 0
-	}
-	m := int(d.Minutes())
-	s := int(d.Seconds()) % 60
-	return fmt.Sprintf("%02d:%02d", m, s)
-}
-
-// ------------------ Move List ------------------
-
-type MoveList struct {
-	Moves     []*chess.Move
-	Scroll    int
-	ViewIndex int // index of currently viewed move
-	Visible   int // how many moves fit on screen
-	Font      font.Face
-}
-
-func NewMoveList() MoveList {
-	return MoveList{
-		Visible: 12,
-		Font:    textFace,
-	}
-}
-
-func (ml *MoveList) Update(moves []*chess.Move) {
-	ml.Moves = moves
-
-	// scrolling
-	ml.HandleScroll()
-
-	// move stepping (rewind / forward)
-	if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) {
-		ml.ViewIndex = max(0, ml.ViewIndex-1)
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) {
-		ml.ViewIndex = min(len(ml.Moves), ml.ViewIndex+1)
-	}
-}
-
-func (ml *MoveList) IsViewingHistory() bool {
-	return ml.ViewIndex < len(ml.Moves)
-}
-
-func (ml *MoveList) ExitHistory() {
-	ml.ViewIndex = len(ml.Moves)
-}
-
-func (ml *MoveList) Draw(screen *ebiten.Image, x, y int) {
-	start := ml.Scroll
-	end := min(len(ml.Moves), start+ml.Visible)
-
-	for i := start; i < end; i++ {
-		col := color.RGBA{255, 255, 255, 1}
-		if i == ml.ViewIndex-1 {
-			col = color.RGBA{255, 215, 0, 255} // highlight
-		}
-		text.Draw(screen, ml.Moves[i].String(), ml.Font, x, y+(i-start)*22, col)
-	}
-}
-
-func (ml *MoveList) HandleScroll() {
-	_, dy := ebiten.Wheel()
-	if dy == 0 {
-		return
-	}
-
-	ml.Scroll -= int(dy)
-	if ml.Scroll < 0 {
-		ml.Scroll = 0
-	}
-
-	maxScroll := max(0, len(ml.Moves)-ml.Visible)
-	if ml.Scroll > maxScroll {
-		ml.Scroll = maxScroll
-	}
-}
 
 // ------------------ Game Settings --------------
 
@@ -495,18 +372,7 @@ func (g *Game) Update() error {
 		g.clock.Update(g.liveGame.Position().Turn())
 	}
 
-	if g.viewPos != nil{
-		g.viewPos = nil
-	
-	}
 
-	g.moveList.Update(g.liveGame.Moves())
-
-	if g.moveList.IsViewingHistory() {
-		g.viewPos = BuildPositionAt(g.moveList.Moves, g.moveList.ViewIndex)
-	} else {
-		g.viewPos = nil	
-	}
 
 	// restart the game with R
 	if ebiten.IsKeyPressed(ebiten.KeyR) {
@@ -543,6 +409,15 @@ func (g *Game) Update() error {
 		if ok {
 			g.handleHumanClick(sq)
 		}
+	}
+
+	g.moveList.Update(g.liveGame.Moves())
+
+	if g.moveList.IsViewingHistory() {
+		g.viewPos = BuildPositionAt(g.moveList.Moves, g.moveList.ViewIndex)
+	} else {
+		g.viewPos = nil
+		g.moveList.ViewIndex = len(g.liveGame.Moves())
 	}
 
 	// End-of-turn status check
