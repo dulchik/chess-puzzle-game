@@ -109,22 +109,6 @@ func legalMovesFrom(pos *chess.Position, from chess.Square) map[chess.Square]boo
 	}
 	return targets
 }
-
-func squareFromMouse(x, y int) (chess.Square, bool) {
-	if x < 0 || y < 0 || x >= screenWidth || y >= screenHeight {
-		return 0, false
-	}
-
-	file := x / tileSize
-	rank := 7 - (y / tileSize)
-
-	if file < 0 || file > 7 || rank < 0 || rank > 7 {
-		return 0, false
-	}
-
-	return chess.Square(file + 8*rank), true
-}
-
 func moveFromSquares(pos *chess.Position, from, to chess.Square) (*chess.Move, error) {
 	uci := from.String() + to.String()
 	notation := chess.UCINotation{}
@@ -176,81 +160,6 @@ func isPawnPromotion(pos *chess.Position, from, to chess.Square) bool {
 	return false
 }
 
-func (g *Game) handleHumanClick(sq chess.Square) {
-	board := g.liveGame.Position().Board()
-	piece := board.Piece(sq)
-
-	if g.selectedSquare == nil {
-		if piece != chess.NoPiece && piece.Color() == g.liveGame.Position().Turn() {
-			g.selectedSquare = &sq
-			g.legalTargets = legalMovesFrom(g.liveGame.Position(), sq)
-		}
-		return
-	}
-
-	// Try move
-	if isPawnPromotion(g.liveGame.Position(), *g.selectedSquare, sq) {
-		g.promotionFrom = g.selectedSquare
-		g.promotionTo = &sq
-		g.selectedSquare = nil
-		g.legalTargets = nil
-		return
-	}
-	uci := g.selectedSquare.String() + sq.String()
-	move, err := chess.UCINotation{}.Decode(g.liveGame.Position(), uci)
-	if err == nil {
-		g.liveGame.Move(move, nil)
-		g.moveList.ExitHistory()
-	}
-
-	g.selectedSquare = nil
-	g.legalTargets = nil
-}
-
-func (g *Game) handlePromotion(mousePressed bool) {
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) && !g.mouseDown {
-		g.promotionFrom = nil
-		g.promotionTo = nil
-		return
-	}
-
-	if !mousePressed || g.mouseDown {
-		return
-	}
-
-	x, y := ebiten.CursorPosition()
-	file := x / tileSize
-	rank := 7 - (y / tileSize)
-
-	options := []rune{'q', 'r', 'b', 'n'}
-
-	for i, promo := range options {
-		r := g.promotionTo.Rank()
-
-		if g.liveGame.Position().Turn() == chess.Black {
-			r += chess.Rank(i)
-		} else {
-			r -= chess.Rank(i)
-		}
-
-		if int(file) == int(g.promotionTo.File()) && int(rank) == int(r) {
-			uci := g.promotionFrom.String() + g.promotionTo.String() + string(promo)
-			move, err := chess.UCINotation{}.Decode(g.liveGame.Position(), uci)
-			if err == nil {
-				g.liveGame.Move(move, nil)
-				g.moveList.ExitHistory()
-				g.viewPos = nil
-			}
-
-			g.promotionFrom = nil
-			g.promotionTo = nil
-			return
-		}
-	}
-
-	g.promotionFrom = nil
-	g.promotionTo = nil
-}
 
 func (g *Game) tryAIMove() {
 	if g.aiThinking {
@@ -366,7 +275,6 @@ func (g *Game) Update() error {
 		return nil
 	}
 
-	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 
 	if g.useTimer {
 		g.clock.Update(g.liveGame.Position().Turn())
@@ -388,42 +296,6 @@ func (g *Game) Update() error {
 		return nil
 	}
 
-	// Promotion Picker
-	if g.promotionFrom != nil {
-		g.handlePromotion(mousePressed)
-		g.mouseDown = mousePressed
-		return nil
-	}
-
-	// AI turn
-	if g.liveGame.Position().Turn() == g.aiColor {
-		g.tryAIMove()
-		g.mouseDown = mousePressed
-		return nil
-	}
-
-	// Human input
-	if mousePressed && !g.mouseDown {
-		x, y := ebiten.CursorPosition()
-		sq, ok := squareFromMouse(x, y)
-		if ok {
-			g.handleHumanClick(sq)
-		}
-	}
-
-	g.moveList.Update(g.liveGame.Moves())
-
-	if g.moveList.IsViewingHistory() {
-		g.viewPos = BuildPositionAt(g.moveList.Moves, g.moveList.ViewIndex)
-	} else {
-		g.viewPos = nil
-		g.moveList.ViewIndex = len(g.liveGame.Moves())
-	}
-
-	// End-of-turn status check
-	g.checkGameOver()
-	g.mouseDown = mousePressed
-	return nil
 }
 
 func BuildPositionAt(moves []*chess.Move, index int) *chess.Position {
