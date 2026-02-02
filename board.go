@@ -1,6 +1,5 @@
 package main
 
-
 import (
 	"image/color"
 
@@ -12,21 +11,21 @@ import (
 )
 
 type BoardRenderer struct {
-	tileSize 	int
-	light 		color.Color
-	dark		color.Color
+	tileSize int
+	light    color.Color
+	dark     color.Color
 
-	pieceFont	font.Face
-	uiFont		font.Face
+	pieceFont font.Face
+	uiFont    font.Face
 }
 
 func NewBoardRenderer(tileSize int, pieceFont, uiFont font.Face) *BoardRenderer {
 	return &BoardRenderer{
-		tileSize: 	tileSize,
-		light:		color.RGBA{240, 217, 181, 255},
-		dark:		color.RGBA{181, 136, 99, 255},
-		pieceFont: 	pieceFont,
-		uiFont:		uiFont,
+		tileSize:  tileSize,
+		light:     color.RGBA{240, 217, 181, 255},
+		dark:      color.RGBA{181, 136, 99, 255},
+		pieceFont: pieceFont,
+		uiFont:    uiFont,
 	}
 }
 
@@ -43,7 +42,7 @@ func (br *BoardRenderer) Draw(
 			sq := chess.Square(int(file) + 8*int(rank))
 
 			x := float64(int(file) * br.tileSize)
-			y := float64((7-int(rank)) * br.tileSize)
+			y := float64((7 - int(rank)) * br.tileSize)
 
 			// square color
 			col := br.light
@@ -54,21 +53,18 @@ func (br *BoardRenderer) Draw(
 
 			// selected square
 			if selected != nil && *selected == sq {
-			ebitenutil.DrawRect(screen, x, y, float64(br.tileSize), float64(br.tileSize), color.RGBA{0, 255, 0, 80})
+				ebitenutil.DrawRect(screen, x, y, float64(br.tileSize), float64(br.tileSize), color.RGBA{0, 255, 0, 80})
 			}
-
 
 			// legal targets
 			if legalTargets != nil && legalTargets[sq] {
-			ebitenutil.DrawRect(screen, x, y, float64(br.tileSize), float64(br.tileSize), color.RGBA{0, 0, 0, 60})
+				ebitenutil.DrawRect(screen, x, y, float64(br.tileSize), float64(br.tileSize), color.RGBA{0, 0, 0, 60})
 			}
-
 
 			// last move highlight
 			if lastMove != nil && (sq == lastMove.S1() || sq == lastMove.S2()) {
-			ebitenutil.DrawRect(screen, x, y, float64(br.tileSize), float64(br.tileSize), color.RGBA{255, 255, 0, 80})
+				ebitenutil.DrawRect(screen, x, y, float64(br.tileSize), float64(br.tileSize), color.RGBA{255, 255, 0, 80})
 			}
-
 
 			// king in check highlight
 			if kingInCheck {
@@ -78,7 +74,7 @@ func (br *BoardRenderer) Draw(
 				}
 			}
 
-			// draw piece 
+			// draw piece
 			piece := pos.Board().Piece(sq)
 			if piece != chess.NoPiece {
 				text.Draw(screen, piece.String(), br.pieceFont, int(x)+16, int(y)+br.tileSize-32, color.Black)
@@ -94,7 +90,7 @@ func (br *BoardRenderer) drawCoordinates(screen *ebiten.Image) {
 		y := (7-int(rank))*br.tileSize + 24
 		text.Draw(screen, rank.String(), br.uiFont, 4, y, color.Black)
 	}
-	
+
 	for file := chess.FileA; file <= chess.FileH; file++ {
 		x := int(file)*br.tileSize + br.tileSize - 20
 		y := br.tileSize*8 - 4

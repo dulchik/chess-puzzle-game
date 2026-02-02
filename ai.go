@@ -5,15 +5,15 @@ import (
 )
 
 type AIController struct {
-	engine		*Engine
-	color		chess.Color
-	thinking	bool
+	engine   *Engine
+	color    chess.Color
+	thinking bool
 }
 
 func NewAIController(engine *Engine, color chess.Color) *AIController {
 	return &AIController{
 		engine: engine,
-		color: 	color,
+		color:  color,
 	}
 }
 
@@ -52,7 +52,7 @@ func (ai *AIController) Update(g *Game) {
 				g.liveGame.Move(move, nil)
 			}
 		}
-	
+
 		ai.thinking = false
 	}()
 }

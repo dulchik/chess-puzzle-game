@@ -6,7 +6,7 @@ import (
 )
 
 type InputHandler struct {
-	tileSize int
+	tileSize  int
 	mouseDown bool
 }
 
@@ -35,8 +35,8 @@ func (ih *InputHandler) Update(g *Game) {
 		ih.mouseDown = mousePressed
 		return
 	}
-	
-	// Detect click (not hold) 
+
+	// Detect click (not hold)
 	if mousePressed && !ih.mouseDown {
 		x, y := ebiten.CursorPosition()
 		sq, ok := ih.squareFromMouse(x, y)
@@ -140,5 +140,3 @@ func (ih *InputHandler) squareFromMouse(x, y int) (chess.Square, bool) {
 
 	return chess.Square(file + 8*rank), true
 }
-
-

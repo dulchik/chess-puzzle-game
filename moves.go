@@ -1,9 +1,7 @@
 package main
 
-
 import (
 	"image/color"
-
 
 	"github.com/corentings/chess/v2"
 	"github.com/hajimehoshi/ebiten/v2"
@@ -15,19 +13,19 @@ import (
 // ------------------ Move List ------------------
 
 type MoveList struct {
-	moves		[]*chess.Move
-	scroll		int
-	viewIndex 	int
+	moves     []*chess.Move
+	scroll    int
+	viewIndex int
 
-	visible 	int
-	font 		font.Face
+	visible int
+	font    font.Face
 }
 
 func NewMoveList(font font.Face) *MoveList {
 	return &MoveList{
-		viewIndex: 	0,
-		visible: 	12,
-		font:    	font,
+		viewIndex: 0,
+		visible:   12,
+		font:      font,
 	}
 }
 
@@ -84,4 +82,3 @@ func (ml *MoveList) Draw(screen *ebiten.Image, x, y int) {
 		text.Draw(screen, ml.Moves[i].String(), ml.font, x, y+(i-start)*22, col)
 	}
 }
-

@@ -1,3 +1,7 @@
+package main
+
+import "github.com/corentings/chess/v2"
+
 type ViewMode int
 
 const (
@@ -6,25 +10,25 @@ const (
 )
 
 type Game struct {
-	LiveGame 	*chess.Game
+	LiveGame *chess.Game
 
-	ViewPos		*chess.Position
-	ViewMode 	ViewMode
+	ViewPos  *chess.Position
+	ViewMode ViewMode
 
-	Moves		*MoveList
-	Clock		ChessClock
-	AI			*AIPlayer
-	
-	Input 		*InputState
+	Moves *MoveList
+	Clock ChessClock
+	AI    *AIPlayer
 
-	Selected	*chess.Square
-	Legal		map[chess.Square]bool
+	Input *InputState
 
-	Promotion	*PromotionState
+	Selected *chess.Square
+	Legal    map[chess.Square]bool
 
-	Mode 		GameMode
-	Over		bool
-	Result		string
+	Promotion *PromotionState
+
+	Mode   GameMode
+	Over   bool
+	Result string
 }
 
 func (g *Game) Update() error {

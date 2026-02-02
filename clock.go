@@ -70,7 +70,7 @@ func (c *ChessClock) OutOfTime() (chess.Color, bool) {
 	return chess.Color, false
 }
 
-func (c *ChessClock) Draw(screen *ebiten.Image, x, y, int) {
+func (c *ChessClock) Draw(screen *ebiten.Image, x, y int) {
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("White: %s", formatTime(c.White)), x, y)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Black: %s", formatTime(c.Black)), x, y+20)
 }
