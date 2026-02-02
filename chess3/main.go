@@ -162,25 +162,7 @@ func isPawnPromotion(pos *chess.Position, from, to chess.Square) bool {
 
 
 func (g *Game) tryAIMove() {
-	if g.aiThinking {
-		return
-	}
 
-	g.aiThinking = true
-
-	go func() {
-		fen := g.liveGame.Position().String()
-		uci, err := g.engine.BestMove(fen, 300)
-		if err == nil {
-			move, err := chess.UCINotation{}.Decode(g.liveGame.Position(), uci)
-			if err == nil {
-				g.liveGame.Move(move, nil)
-				g.moveList.ExitHistory()
-				g.viewPos = nil
-			}
-		}
-		g.aiThinking = false
-	}()
 
 }
 
