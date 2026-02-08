@@ -15,3 +15,6 @@ This project uses Stockfish for AI play.
     ```
 
 4. Update the path in main.go if needed
+
+#### the idea is to create an app that connects to chess account, gets your game and makes puzzles out of the game you played, so that you can learn on your own mistakes
+
