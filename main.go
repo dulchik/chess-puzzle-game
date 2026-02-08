@@ -128,6 +128,8 @@ type Game struct {
 	whiteTime time.Duration
 	blackTime time.Duration
 	lastTick  time.Time
+
+	pendingGameOver  bool
 }
 
 func loadFonts() {
@@ -296,39 +298,48 @@ func (g *Game) handlePromotion(mousePressed bool) {
 }
 
 func (g *Game) tryAIMove() {
-	if g.aiThinking {
+	if g.aiThinking || g.gameOver {
 		return
 	}
 
 	g.aiThinking = true
 
 	go func() {
-		fen := g.chessGame.Position().String()
-		uci, err := g.engine.BestMove(fen, 300)
-		if err == nil {
-			move, err := chess.UCINotation{}.Decode(g.chessGame.Position(), uci)
-			if err == nil {
-				g.chessGame.Move(move, nil)
-			}
-		}
-		g.aiThinking = false
-	}()
+		defer func() { g.aiThinking = false }()
 
+		pos := g.chessGame.Position()
+		fen := pos.String()
+
+		uci, err := g.engine.BestMove(fen, 300)
+		if err != nil {
+			return 
+		}
+
+		if uci == "(none)" {
+			moves := pos.ValidMoves()
+			if len(moves) == 1 {
+				g.chessGame.Move(&moves[0], nil)
+			}
+			g.checkGameOver()
+			return
+		}
+
+		move, err := chess.UCINotation{}.Decode(pos, uci)
+		if err != nil {
+			return
+		}
+
+		g.chessGame.Move(move, nil)
+		g.checkGameOver()
+	}()
 }
 
 func (g *Game) checkGameOver() {
 	pos := g.chessGame.Position()
+
 	switch pos.Status() {
-	case chess.Checkmate:
-		g.gameOver = true
-		if pos.Turn() == chess.White {
-			g.gameResult = "Black wins by checkmate"
-		} else {
-			g.gameResult = "White wins by checkmate"
-		}
-	case chess.Stalemate:
-		g.gameOver = true
-		g.gameResult = "Draw by stalemate"
+	case chess.Checkmate, chess.Stalemate:
+		g.pendingGameOver = true	
 	}
 }
 
@@ -402,31 +413,35 @@ func oppositeColor(c chess.Color) chess.Color {
 }
 
 func (g *Game) Update() error {
+	if g.pendingGameOver {
+		g.pendingGameOver = false
+		g.gameOver = true
+
+		pos := g.chessGame.Position()
+		if pos.Status() == chess.Checkmate {
+			if pos.Turn() == chess.White {
+				g.gameResult = "Black wins by checkmate"
+			} else {
+				g.gameResult = "White wins by checkmate"
+			}
+		} else {
+			g.gameResult = "Draw by stalemate"
+		}
+
+		return nil
+	}
+
 	if g.mode == ModeMenu {
 		g.updateMenu()
 		return nil
 	}
-
-	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 	
+	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+
 	if g.useTimer {
 		g.clock.Update(g.chessGame.Position().Turn())
 	}
 
-	// restart the game with R
-	if ebiten.IsKeyPressed(ebiten.KeyR) {
-		g.resetGame()
-		return nil
-	}
-
-	// Game over
-	if g.gameOver {
-		if ebiten.IsKeyPressed(ebiten.KeyR) {
-			g.resetGame()
-		}
-		return nil
-	}
-	
 	// Promotion Picker 
 	if g.promotionFrom != nil {
 		g.handlePromotion(mousePressed)
@@ -447,11 +462,18 @@ func (g *Game) Update() error {
 		sq, ok := squareFromMouse(x, y)
 		if ok {
 			g.handleHumanClick(sq)
+			g.checkGameOver()
 		}
 	}
 
-	// End-of-turn status check
-	g.checkGameOver()
+	// Game Over
+	if g.gameOver {
+		if ebiten.IsKeyPressed(ebiten.KeyR) {
+			g.resetGame()
+		}
+		return nil
+	} 
+
 	g.mouseDown = mousePressed
 	return nil
 }
